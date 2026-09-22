@@ -20,6 +20,23 @@ export interface FileItem {
   content: string;
 }
 
+// deepagents 0.7+ 的虚拟文件系统要求 files 状态值是 FileData 对象，
+// 不能直接提交纯字符串（否则后端 read_file 会抛
+// "string indices must be integers, not 'str'"）。
+export interface FileData {
+  content: string;
+  encoding: string;
+  created_at?: string;
+  modified_at?: string;
+}
+
+export type FilesMap = Record<string, string | FileData>;
+
+export function toFileData(content: string): FileData {
+  const now = new Date().toISOString();
+  return { content, encoding: "utf-8", created_at: now, modified_at: now };
+}
+
 export interface TodoItem {
   id: string;
   content: string;

@@ -16,7 +16,10 @@ import {
   Clock,
   Circle,
   FileIcon,
+  Paperclip,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import type {
   TodoItem,
@@ -30,10 +33,24 @@ import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { FilesPopover } from "@/app/components/TasksFilesSidebar";
+import { OutputsBar } from "@/app/components/OutputsBar";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
 }
+
+const sanitizeFileName = (name: string) =>
+  name
+    .replace(/\.pdf$/i, "")
+    .replace(/[^\w一-龥-]+/g, "_")
+    .slice(0, 60);
+
+const buildDocInstruction = (path: string, fileName: string) =>
+  `我已上传需求文档「${fileName}」，解析后的 Markdown 已保存到虚拟文件系统的 ${path}。` +
+  `请使用 read_file 阅读该文件，然后严格按以下流程执行：\n` +
+  `1. 从文档中提取全部测试点（功能点、边界条件、异常场景），按模块分组；\n` +
+  `2. 基于测试点设计测试用例（Markdown 表格，列：用例编号 | 用例名称 | 前置条件 | 测试步骤 | 预期结果 | 优先级，单元格内不要用 | 符号或换行），然后调用 generate_testcase_excel 工具把完整用例表转换为 Excel 文件保存到本机（doc_name 传「${sanitizeFileName(fileName)}」），不要用 write_file 保存 testcases.md；\n` +
+  `3. 将测试点组织成思维导图：先用 \`\`\`mindmap 代码块输出 markmap 兼容的 Markdown 缩进列表，再用 write_file 把该 Markdown 原样保存到 /outputs/${sanitizeFileName(fileName)}-mindmap.md（纯标题列表，供导出 XMind 使用），最后按模板将完整 markmap HTML 保存到 /outputs/${sanitizeFileName(fileName)}-mindmap.html。`;
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   switch (status) {
@@ -67,6 +84,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [input, setInput] = useState("");
+  const [isParsing, setIsParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -108,6 +127,39 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       }
     },
     [handleSubmit, submitDisabled]
+  );
+
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = ""; // 允许重复选择同一文件
+      if (!file || isLoading || isParsing) return;
+
+      setIsParsing(true);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const resp = await fetch("/api/parse-document", {
+          method: "POST",
+          body: fd,
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          toast.error(`文档解析失败：${data.error ?? "未知错误"}`);
+          return;
+        }
+        const path = `/uploads/${sanitizeFileName(file.name)}.md`;
+        toast.success(`已解析「${file.name}」，正在生成测试用例…`);
+        sendMessage(buildDocInstruction(path, file.name), {
+          [path]: data.markdown,
+        });
+      } catch {
+        toast.error("文档解析失败：网络错误");
+      } finally {
+        setIsParsing(false);
+      }
+    },
+    [isLoading, isParsing, sendMessage]
   );
 
   // TODO: can we make this part of the hook?
@@ -253,7 +305,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         >
           {isThreadLoading ? (
             <div className="flex items-center justify-center p-8">
-              <p className="text-muted-foreground">Loading...</p>
+              <p className="text-muted-foreground">加载中...</p>
             </div>
           ) : (
             <>
@@ -286,11 +338,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         </div>
       </div>
 
-      <div className="flex-shrink-0 bg-background">
+      <div className="flex-shrink-0 bg-gradient-to-t from-background via-background to-transparent pt-2">
         <div
           className={cn(
-            "mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background",
-            "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out"
+            "chat-input-box mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-[0_4px_20px_rgba(0,0,0,0.05)]",
+            "mx-auto w-[calc(100%-32px)] max-w-[1024px]"
           )}
         >
           {(hasTasks || hasFiles) && (
@@ -332,7 +384,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  All tasks completed
+                                  所有任务已完成
                                 </span>,
                               ];
                             }
@@ -346,8 +398,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  Task{" "}
-                                  {totalTasks - groupedTodos.pending.length} of{" "}
+                                  任务 {totalTasks - groupedTodos.pending.length} /{" "}
                                   {totalTasks}
                                 </span>,
                                 <span
@@ -369,8 +420,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                 key="label"
                                 className="ml-[1px] min-w-0 truncate text-sm"
                               >
-                                Task {totalTasks - groupedTodos.pending.length}{" "}
-                                of {totalTasks}
+                                任务 {totalTasks - groupedTodos.pending.length}{" "}
+                                / {totalTasks}
                               </span>,
                             ];
                           })()}
@@ -392,7 +443,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                           aria-expanded={metaOpen === "files"}
                         >
                           <FileIcon size={16} />
-                          Files (State)
+                          文件（状态）
                           <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
                             {Object.keys(files).length}
                           </span>
@@ -424,7 +475,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         }
                         aria-expanded={metaOpen === "tasks"}
                       >
-                        Tasks
+                        任务
                       </button>
                     )}
                     {hasFiles && (
@@ -438,7 +489,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         }
                         aria-expanded={metaOpen === "files"}
                       >
-                        Files (State)
+                        文件（状态）
                         <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
                           {Object.keys(files).length}
                         </span>
@@ -463,13 +514,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             className="mb-4"
                           >
                             <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary">
-                              {
                                 {
-                                  pending: "Pending",
-                                  in_progress: "In Progress",
-                                  completed: "Completed",
-                                }[status]
-                              }
+                                  {
+                                    pending: "待处理",
+                                    in_progress: "进行中",
+                                    completed: "已完成",
+                                  }[status]
+                                }
                             </h3>
                             <div className="grid grid-cols-[auto_1fr] gap-3 rounded-sm p-1 pl-0 text-sm">
                               {todos.map((todo, index) => (
@@ -500,6 +551,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               )}
             </div>
           )}
+          <OutputsBar files={files} messages={messages} />
           <form
             onSubmit={handleSubmit}
             className="flex flex-col"
@@ -509,27 +561,65 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isLoading ? "Running..." : "Write your message..."}
+              placeholder={isLoading ? "正在运行..." : "输入您的问题..."}
               className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[14px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
               rows={1}
             />
             <div className="flex justify-between gap-2 p-3">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={isLoading || isParsing || !assistant}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="上传需求文档 PDF"
+                >
+                  {isParsing ? (
+                    <Loader2
+                      size={18}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Paperclip size={18} />
+                  )}
+                </Button>
+              </div>
               <div className="flex justify-end gap-2">
                 <Button
                   type={isLoading ? "button" : "submit"}
                   variant={isLoading ? "destructive" : "default"}
                   onClick={isLoading ? stopStream : handleSubmit}
-                  disabled={!isLoading && (submitDisabled || !input.trim())}
+                  disabled={
+                    !isLoading && (submitDisabled || isParsing || !input.trim())
+                  }
+                  className={
+                    isLoading
+                      ? "rounded-full"
+                      : "rounded-full border-transparent text-white shadow-md transition-all hover:opacity-90 hover:shadow-lg"
+                  }
+                  style={
+                    isLoading
+                      ? undefined
+                      : { background: "var(--brand-gradient-soft)" }
+                  }
                 >
                   {isLoading ? (
                     <>
                       <Square size={14} />
-                      <span>Stop</span>
+                      <span>停止</span>
                     </>
                   ) : (
                     <>
                       <ArrowUp size={18} />
-                      <span>Send</span>
+                      <span>发送</span>
                     </>
                   )}
                 </Button>

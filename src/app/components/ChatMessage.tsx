@@ -87,7 +87,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     return (
       <div
         className={cn(
-          "flex w-full max-w-full overflow-x-hidden",
+          "animate-msg-in flex w-full max-w-full overflow-x-hidden",
           isUser && "flex-row-reverse"
         )}
       >
@@ -103,12 +103,15 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 className={cn(
                   "mt-4 overflow-hidden break-words text-sm font-normal leading-[150%]",
                   isUser
-                    ? "rounded-xl rounded-br-none border border-border px-3 py-2 text-foreground"
-                    : "text-primary"
+                    ? "rounded-2xl rounded-br-md px-4 py-2.5 shadow-sm"
+                    : "w-full rounded-2xl border border-border/60 bg-card px-5 py-4 shadow-sm text-primary"
                 )}
                 style={
                   isUser
-                    ? { backgroundColor: "var(--color-user-message-bg)" }
+                    ? {
+                        background: "var(--user-bubble)",
+                        color: "var(--user-bubble-text)",
+                      }
                     : undefined
                 }
               >
@@ -167,7 +170,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     <div className="w-full max-w-full">
                       <div className="bg-surface border-border-light rounded-md border p-4">
                         <h4 className="text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider">
-                          Input
+                          输入
                         </h4>
                         <div className="mb-4">
                           <MarkdownContent
@@ -177,7 +180,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         {subAgent.output && (
                           <>
                             <h4 className="text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider">
-                              Output
+                              输出
                             </h4>
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}

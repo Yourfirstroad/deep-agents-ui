@@ -86,7 +86,7 @@ export function useThreads(props: {
       });
 
       return threads.map((thread): ThreadItem => {
-        let title = "Untitled Thread";
+        let title = "未命名会话";
         let description = "";
 
         try {

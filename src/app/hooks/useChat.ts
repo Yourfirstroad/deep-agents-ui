@@ -9,14 +9,15 @@ import {
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { TodoItem } from "@/app/types/types";
+import type { TodoItem, FileData, FilesMap } from "@/app/types/types";
+import { toFileData } from "@/app/types/types";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 
 export type StateType = {
   messages: Message[];
   todos: TodoItem[];
-  files: Record<string, string>;
+  files: FilesMap;
   email?: {
     id?: string;
     subject?: string;
@@ -54,13 +55,33 @@ export function useChat({
   });
 
   const sendMessage = useCallback(
-    (content: string) => {
+    (content: string, extraFiles?: Record<string, string>) => {
       const newMessage: Message = { id: uuidv4(), type: "human", content };
+      // deepagents 的 files 是 dict 状态，与现有 files 合并后随 submit 一起提交，
+      // 这样新会话（threadId 为 null，setFiles 不可用）也能注入文件。
+      // 注意：0.7+ 的 files 值必须是 FileData 对象，纯字符串会导致后端
+      // read_file 抛 "string indices must be integers, not 'str'"。
+      const mergedFiles: FilesMap | undefined = extraFiles
+        ? {
+            ...(stream.values.files ?? {}),
+            ...Object.fromEntries(
+              Object.entries(extraFiles).map(([path, content]) => [
+                path,
+                toFileData(content),
+              ])
+            ),
+          }
+        : undefined;
       stream.submit(
-        { messages: [newMessage] },
+        {
+          messages: [newMessage],
+          ...(mergedFiles ? { files: mergedFiles } : {}),
+        },
         {
           optimisticValues: (prev) => ({
+            ...prev,
             messages: [...(prev.messages ?? []), newMessage],
+            ...(mergedFiles ? { files: mergedFiles } : {}),
           }),
           config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
         }
@@ -100,11 +121,18 @@ export function useChat({
   );
 
   const setFiles = useCallback(
-    async (files: Record<string, string>) => {
+    async (files: FilesMap) => {
       if (!threadId) return;
       // TODO: missing a way how to revalidate the internal state
       // I think we do want to have the ability to externally manage the state
-      await client.threads.updateState(threadId, { values: { files } });
+      // 纯字符串值统一包装成 FileData，避免后端 read_file 崩溃
+      const normalized: Record<string, FileData> = Object.fromEntries(
+        Object.entries(files).map(([path, value]) => [
+          path,
+          typeof value === "string" ? toFileData(value) : value,
+        ])
+      );
+      await client.threads.updateState(threadId, { values: { files: normalized } });
     },
     [client, threadId]
   );

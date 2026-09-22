@@ -47,7 +47,7 @@ export function ConfigDialog({
 
   const handleSave = () => {
     if (!deploymentUrl || !assistantId) {
-      alert("Please fill in all required fields");
+      alert("请填写所有必填字段");
       return;
     }
 
@@ -66,15 +66,14 @@ export function ConfigDialog({
     >
       <DialogContent className="sm:max-w-[525px]">
         <DialogHeader>
-          <DialogTitle>Configuration</DialogTitle>
+          <DialogTitle>配置</DialogTitle>
           <DialogDescription>
-            Configure your LangGraph deployment settings. These settings are
-            saved in your browser&apos;s local storage.
+            配置 LangGraph 部署信息。这些设置将保存在浏览器本地存储中。
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label htmlFor="deploymentUrl">Deployment URL</Label>
+            <Label htmlFor="deploymentUrl">部署地址</Label>
             <Input
               id="deploymentUrl"
               placeholder="https://<deployment-url>"
@@ -83,7 +82,7 @@ export function ConfigDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="assistantId">Assistant ID</Label>
+            <Label htmlFor="assistantId">助手 ID</Label>
             <Input
               id="assistantId"
               placeholder="<assistant-id>"
@@ -93,8 +92,8 @@ export function ConfigDialog({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="langsmithApiKey">
-              LangSmith API Key{" "}
-              <span className="text-muted-foreground">(Optional)</span>
+              LangSmith API 密钥{" "}
+              <span className="text-muted-foreground">（可选）</span>
             </Label>
             <Input
               id="langsmithApiKey"
@@ -110,9 +109,9 @@ export function ConfigDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={handleSave}>保存</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

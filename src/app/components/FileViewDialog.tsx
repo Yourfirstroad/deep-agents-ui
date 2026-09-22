@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useCallback, useState, useEffect } from "react";
-import { FileText, Copy, Download, Edit, Save, X, Loader2 } from "lucide-react";
+import { FileText, Copy, Download, Edit, Save, X, Loader2, Network, FileSpreadsheet } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,7 @@ export const FileViewDialog = React.memo<{
   const [isEditingMode, setIsEditingMode] = useState(file === null);
   const [fileName, setFileName] = useState(String(file?.path || ""));
   const [fileContent, setFileContent] = useState(String(file?.content || ""));
+  const [isExporting, setIsExporting] = useState(false);
 
   const fileUpdate = useSWRMutation(
     { kind: "files-update", fileName, fileContent },
@@ -68,7 +69,7 @@ export const FileViewDialog = React.memo<{
     },
     {
       onSuccess: () => setIsEditingMode(false),
-      onError: (error) => toast.error(`Failed to save file: ${error}`),
+      onError: (error) => toast.error(`文件保存失败：${error}`),
     }
   );
 
@@ -115,6 +116,62 @@ export const FileViewDialog = React.memo<{
     setIsEditingMode(true);
   }, []);
 
+  // 思维导图 Markdown（/outputs/xxx-mindmap.md）可以一键导出为 XMind 文件
+  const isMindmapMd = useMemo(
+    () => /-mindmap\.md$/i.test(String(fileName || "")),
+    [fileName]
+  );
+
+  // 测试用例表（/outputs/xxx-testcases.md）可以一键导出为 Excel 文件
+  const isTestcasesMd = useMemo(
+    () => /-testcases\.md$/i.test(String(fileName || "")),
+    [fileName]
+  );
+
+  const exportFile = useCallback(
+    async (api: string, ext: string, label: string) => {
+      if (!fileContent || isExporting) return;
+      setIsExporting(true);
+      try {
+        const resp = await fetch(api, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ markdown: fileContent, filename: fileName }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          toast.error(`${label}导出失败：${data.error ?? `HTTP ${resp.status}`}`);
+          return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${String(fileName).replace(/\.md$/i, "")}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success(`已导出 ${label} 文件`);
+      } catch {
+        toast.error(`${label}导出失败：网络错误`);
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [fileContent, fileName, isExporting]
+  );
+
+  const handleExportXmind = useCallback(
+    () => exportFile("/api/xmind", "xmind", "XMind"),
+    [exportFile]
+  );
+
+  const handleExportExcel = useCallback(
+    () => exportFile("/api/excel", "xlsx", "Excel"),
+    [exportFile]
+  );
+
   const handleCancel = useCallback(() => {
     if (file === null) {
       onClose();
@@ -140,7 +197,7 @@ export const FileViewDialog = React.memo<{
     >
       <DialogContent className="flex h-[80vh] max-h-[80vh] min-w-[60vw] flex-col p-6">
         <DialogTitle className="sr-only">
-          {file?.path || "New File"}
+          {file?.path || "新建文件"}
         </DialogTitle>
         <div className="mb-4 flex items-center justify-between border-b border-border pb-4">
           <div className="flex min-w-0 items-center gap-2">
@@ -149,7 +206,7 @@ export const FileViewDialog = React.memo<{
               <Input
                 value={fileName}
                 onChange={(e) => setFileName(e.target.value)}
-                placeholder="Enter filename..."
+                placeholder="输入文件名..."
                 className="text-base font-medium"
                 aria-invalid={!fileNameIsValid}
               />
@@ -173,7 +230,7 @@ export const FileViewDialog = React.memo<{
                     size={16}
                     className="mr-1"
                   />
-                  Edit
+                  编辑
                 </Button>
                 <Button
                   onClick={handleCopy}
@@ -185,7 +242,7 @@ export const FileViewDialog = React.memo<{
                     size={16}
                     className="mr-1"
                   />
-                  Copy
+                  复制
                 </Button>
                 <Button
                   onClick={handleDownload}
@@ -197,8 +254,52 @@ export const FileViewDialog = React.memo<{
                     size={16}
                     className="mr-1"
                   />
-                  Download
+                  下载
                 </Button>
+                {isMindmapMd && (
+                  <Button
+                    onClick={handleExportXmind}
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2"
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <Loader2
+                        size={16}
+                        className="mr-1 animate-spin"
+                      />
+                    ) : (
+                      <Network
+                        size={16}
+                        className="mr-1"
+                      />
+                    )}
+                    导出 XMind
+                  </Button>
+                )}
+                {isTestcasesMd && (
+                  <Button
+                    onClick={handleExportExcel}
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2"
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <Loader2
+                        size={16}
+                        className="mr-1 animate-spin"
+                      />
+                    ) : (
+                      <FileSpreadsheet
+                        size={16}
+                        className="mr-1"
+                      />
+                    )}
+                    导出 Excel
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -208,7 +309,7 @@ export const FileViewDialog = React.memo<{
             <Textarea
               value={fileContent}
               onChange={(e) => setFileContent(e.target.value)}
-              placeholder="Enter file content..."
+              placeholder="输入文件内容..."
               className="h-full min-h-[400px] resize-none font-mono text-sm"
             />
           ) : (
@@ -242,7 +343,7 @@ export const FileViewDialog = React.memo<{
                 ) : (
                   <div className="flex items-center justify-center p-12">
                     <p className="text-sm text-muted-foreground">
-                      File is empty
+                      文件为空
                     </p>
                   </div>
                 )}
@@ -261,7 +362,7 @@ export const FileViewDialog = React.memo<{
                 size={16}
                 className="mr-1"
               />
-              Cancel
+              取消
             </Button>
             <Button
               onClick={() => fileUpdate.trigger()}
@@ -284,7 +385,7 @@ export const FileViewDialog = React.memo<{
                   className="mr-1"
                 />
               )}
-              Save
+              保存
             </Button>
           </div>
         )}

@@ -7,7 +7,7 @@ import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
-import { Settings, MessagesSquare, SquarePen } from "lucide-react";
+import { Settings, MessagesSquare, SquarePen, Fish } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -59,7 +59,7 @@ function HomePageInner({
           config: {},
           metadata: {},
           version: 1,
-          name: "Assistant",
+          name: "小猫小鱼助手",
           context: {},
         });
       }
@@ -111,18 +111,31 @@ function HomePageInner({
         initialConfig={config}
       />
       <div className="flex h-screen flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border px-6">
+        <header className="flex h-16 items-center justify-between border-b border-border/60 bg-background/80 px-6 shadow-[0_1px_3px_rgba(0,0,0,0.04)] backdrop-blur">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">Deep Agent UI</h1>
+            <div className="flex items-center gap-2.5">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md"
+                style={{ background: "var(--brand-gradient)" }}
+              >
+                <Fish className="h-5 w-5" />
+              </div>
+              <h1
+                className="bg-clip-text text-xl font-bold tracking-tight text-transparent"
+                style={{ backgroundImage: "var(--brand-gradient)" }}
+              >
+                小猫小鱼
+              </h1>
+            </div>
             {!sidebar && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebar("1")}
-                className="rounded-md border border-border bg-card p-3 text-foreground hover:bg-accent"
+                className="rounded-full border border-border bg-card px-4 text-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow"
               >
                 <MessagesSquare className="mr-2 h-4 w-4" />
-                Threads
+                会话列表
                 {interruptCount > 0 && (
                   <span className="ml-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground">
                     {interruptCount}
@@ -132,27 +145,29 @@ function HomePageInner({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <div className="text-sm text-muted-foreground">
-              <span className="font-medium">Assistant:</span>{" "}
+            <div className="rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+              <span className="font-medium">助手：</span>{" "}
               {config.assistantId}
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setConfigDialogOpen(true)}
+              className="rounded-full"
             >
               <Settings className="mr-2 h-4 w-4" />
-              Settings
+              设置
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setThreadId(null)}
               disabled={!threadId}
-              className="border-[#2F6868] bg-[#2F6868] text-white hover:bg-[#2F6868]/80"
+              className="rounded-full border-transparent text-white shadow-md transition-all hover:-translate-y-px hover:opacity-90 hover:shadow-lg"
+              style={{ background: "var(--brand-gradient-soft)" }}
             >
               <SquarePen className="mr-2 h-4 w-4" />
-              New Thread
+              新建会话
             </Button>
           </div>
         </header>
@@ -247,15 +262,15 @@ function HomePageContent() {
         />
         <div className="flex h-screen items-center justify-center">
           <div className="text-center">
-            <h1 className="text-2xl font-bold">Welcome to Standalone Chat</h1>
+            <h1 className="text-2xl font-bold">欢迎使用小猫小鱼</h1>
             <p className="mt-2 text-muted-foreground">
-              Configure your deployment to get started
+              请先配置部署信息，开始使用
             </p>
             <Button
               onClick={() => setConfigDialogOpen(true)}
               className="mt-4"
             >
-              Open Configuration
+              打开配置
             </Button>
           </div>
         </div>
@@ -283,7 +298,7 @@ export default function HomePage() {
     <Suspense
       fallback={
         <div className="flex h-screen items-center justify-center">
-          <p className="text-muted-foreground">Loading...</p>
+          <p className="text-muted-foreground">加载中...</p>
         </div>
       }
     >
