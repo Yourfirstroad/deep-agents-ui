@@ -34,6 +34,11 @@ import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 import { OutputsBar } from "@/app/components/OutputsBar";
+import { DenoiseReportCard } from "@/app/components/DenoiseReportCard";
+import { PipelineStepper } from "@/app/components/PipelineStepper";
+import { BottomPanel } from "@/app/components/BottomPanel";
+import type { ParsePhase, ParseReport } from "@/app/types/types";
+import { DEFAULT_DENOISE_CONFIG, getConfig } from "@/lib/config";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
@@ -85,6 +90,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const [input, setInput] = useState("");
   const [isParsing, setIsParsing] = useState(false);
+  const [parsePhase, setParsePhase] = useState<ParsePhase | null>(null);
+  const [parseDetail, setParseDetail] = useState("");
+  const [parseReport, setParseReport] = useState<ParseReport | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { scrollRef, contentRef } = useStickToBottom();
 
@@ -136,27 +144,88 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       if (!file || isLoading || isParsing) return;
 
       setIsParsing(true);
+      setParsePhase("parsing");
+      setParseReport(null);
       try {
         const fd = new FormData();
         fd.append("file", file);
+        // 设置对话框里的降噪参数随请求带给后端(按次生效)
+        const dc = getConfig()?.denoise ?? DEFAULT_DENOISE_CONFIG;
+        fd.append(
+          "denoise_params",
+          JSON.stringify({
+            enabled: dc.enabled,
+            repeat_min_pages: dc.repeatMinPages,
+            repeat_maxlen: dc.repeatMaxlen,
+            max_delete_ratio: dc.maxDeleteRatio,
+            picture_description: dc.pictureDescription,
+          })
+        );
         const resp = await fetch("/api/parse-document", {
           method: "POST",
           body: fd,
         });
-        const data = await resp.json();
-        if (!resp.ok) {
-          toast.error(`文档解析失败：${data.error ?? "未知错误"}`);
+        if (!resp.ok || !resp.body) {
+          const data = await resp.json().catch(() => ({}));
+          toast.error(`文档解析失败:${data.error ?? `HTTP ${resp.status}`}`);
           return;
         }
+
+        // SSE 流式读取:parsing / denoising / done / error
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let donePayload: Record<string, any> | null = null;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+          for (const evt of events) {
+            const line = evt.split("\n").find((l) => l.startsWith("data: "));
+            if (!line) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.phase === "parsing" || data.phase === "denoising") {
+                setParsePhase(data.phase);
+                if (data.detail) setParseDetail(data.detail);
+              } else if (data.phase === "done") {
+                donePayload = data;
+              } else if (data.phase === "error") {
+                toast.error(`文档解析失败:${data.error}`);
+              }
+            } catch {
+              /* 忽略不完整的事件行 */
+            }
+          }
+        }
+        if (!donePayload) return;
+
         const path = `/uploads/${sanitizeFileName(file.name)}.md`;
-        toast.success(`已解析「${file.name}」，正在生成测试用例…`);
-        sendMessage(buildDocInstruction(path, file.name), {
-          [path]: data.markdown,
+        setParseReport({
+          path,
+          fileName: file.name,
+          markdown: donePayload.markdown,
+          rawMarkdown: donePayload.raw_markdown ?? donePayload.markdown,
+          denoise: donePayload.denoise ?? null,
+          denoiseError: donePayload.denoise_error,
+          auditMarkdown: donePayload.audit_markdown ?? null,
+          artifacts: donePayload.artifacts ?? undefined,
         });
+        toast.success(`已解析「${file.name}」,正在生成测试用例…`);
+        // 降噪报告一并注入文件面板(持久可预览),与文档一起进入会话
+        const extra: Record<string, string> = { [path]: donePayload.markdown };
+        if (donePayload.audit_markdown) {
+          extra[`/outputs/${sanitizeFileName(file.name)}-降噪报告.md`] =
+            donePayload.audit_markdown;
+        }
+        sendMessage(buildDocInstruction(path, file.name), extra);
       } catch {
-        toast.error("文档解析失败：网络错误");
+        toast.error("文档解析失败:网络错误");
       } finally {
         setIsParsing(false);
+        setParsePhase(null);
       }
     },
     [isLoading, isParsing, sendMessage]
@@ -551,7 +620,57 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               )}
             </div>
           )}
-          <OutputsBar files={files} messages={messages} />
+          <PipelineStepper messages={messages} />
+          {(() => {
+            // 三块产出面板默认折叠,只显一行摘要,避免压住聊天窗口的滚动
+            const docKeys = Object.keys(files).filter((k) =>
+              k.startsWith("/uploads/")
+            );
+            const hasMindmap =
+              Object.keys(files).some((k) =>
+                /-mindmap\.(md|html)$/i.test(k)
+              );
+            const hasCases = Object.keys(files).some((k) =>
+              /-testcases\.md$/i.test(k)
+            );
+            const segments: string[] = [];
+            if (docKeys.length > 0) segments.push(`${docKeys.length} 文档`);
+            if (hasCases) segments.push("用例 ✔");
+            if (hasMindmap) segments.push("导图 ✔");
+            if (parseReport?.denoise) {
+              const total = parseReport.denoise.removals.length;
+              segments.push(
+                parseReport.denoise.aborted
+                  ? "降噪保留原文"
+                  : total === 0
+                    ? "降噪无噪音"
+                    : `降噪 ${total} 处`
+              );
+            }
+            const summary =
+              segments.length > 0 ? segments.join(" · ") : "暂无产出";
+            const hasContent =
+              docKeys.length > 0 || hasCases || hasMindmap || parseReport;
+            if (!hasContent) return null;
+            return (
+              <BottomPanel
+                summary={summary}
+                storageKey={`bottom-panel-${assistant?.assistant_id ?? "default"}`}
+              >
+                <OutputsBar files={files} messages={messages} />
+                {parseReport && <DenoiseReportCard report={parseReport} />}
+              </BottomPanel>
+            );
+          })()}
+          {parsePhase && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 size={13} className="animate-spin" />
+              {parseDetail ||
+                (parsePhase === "parsing"
+                  ? "文档解析中(docling + 千问 VL 图片描述,大文档需数分钟)…"
+                  : "降噪清洗中(去页眉页脚/水印/页码)…")}
+            </div>
+          )}
           <form
             onSubmit={handleSubmit}
             className="flex flex-col"
