@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { Loader2, MessageSquare, X } from "lucide-react";
+import { Loader2, MessageSquare, Trash2, X } from "lucide-react";
 import { useQueryState } from "nuqs";
+import { toast } from "sonner";
+import { useClient } from "@/providers/ClientProvider";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -124,13 +126,37 @@ export function ThreadList({
   onClose,
   onInterruptCountChange,
 }: ThreadListProps) {
-  const [currentThreadId] = useQueryState("threadId");
+  const [currentThreadId, setCurrentThreadId] = useQueryState("threadId");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const client = useClient();
 
   const threads = useThreads({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 20,
   });
+
+  const handleDelete = useCallback(
+    async (threadId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!client || deletingId) return;
+      if (!window.confirm("删除该会话?删除后不可恢复。")) return;
+      setDeletingId(threadId);
+      try {
+        await client.threads.delete(threadId);
+        if (currentThreadId === threadId) {
+          setCurrentThreadId(null); // 删的是当前会话,回到新会话状态
+        }
+        await threads.mutate();
+        toast.success("会话已删除");
+      } catch {
+        toast.error("删除失败,请重试");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [client, currentThreadId, deletingId, threads, setCurrentThreadId]
+  );
 
   const flattened = useMemo(() => {
     return threads.data?.flat() ?? [];
@@ -298,45 +324,69 @@ export function ThreadList({
                   </h4>
                   <div className="flex flex-col gap-1">
                     {groupThreads.map((thread) => (
-                      <button
+                      <div
                         key={thread.id}
-                        type="button"
-                        onClick={() => onThreadSelect(thread.id)}
-                        className={cn(
-                          "grid w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors duration-200",
-                          "hover:bg-accent",
-                          currentThreadId === thread.id
-                            ? "border border-primary bg-accent hover:bg-accent"
-                            : "border border-transparent bg-transparent"
-                        )}
-                        aria-current={currentThreadId === thread.id}
+                        className="group relative"
                       >
-                        <div className="min-w-0 flex-1">
-                          {/* Title + Timestamp Row */}
-                          <div className="mb-1 flex items-center justify-between">
-                            <h3 className="truncate text-sm font-semibold">
-                              {thread.title}
-                            </h3>
-                            <span className="ml-2 flex-shrink-0 text-xs text-muted-foreground">
-                              {formatTime(thread.updatedAt)}
-                            </span>
-                          </div>
-                          {/* Description + Status Row */}
-                          <div className="flex items-center justify-between">
-                            <p className="flex-1 truncate text-sm text-muted-foreground">
-                              {thread.description}
-                            </p>
-                            <div className="ml-2 flex-shrink-0">
-                              <div
-                                className={cn(
-                                  "h-2 w-2 rounded-full",
-                                  getThreadColor(thread.status)
-                                )}
-                              />
+                        <button
+                          type="button"
+                          onClick={() => onThreadSelect(thread.id)}
+                          className={cn(
+                            "grid w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors duration-200",
+                            "hover:bg-accent",
+                            currentThreadId === thread.id
+                              ? "border border-primary bg-accent hover:bg-accent"
+                              : "border border-transparent bg-transparent"
+                          )}
+                          aria-current={currentThreadId === thread.id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            {/* Title + Timestamp Row */}
+                            <div className="mb-1 flex items-center justify-between">
+                              <h3 className="truncate text-sm font-semibold">
+                                {thread.title}
+                              </h3>
+                              <span className="ml-2 flex-shrink-0 text-xs text-muted-foreground">
+                                {formatTime(thread.updatedAt)}
+                              </span>
+                            </div>
+                            {/* Description + Status Row */}
+                            <div className="flex items-center justify-between">
+                              <p className="flex-1 truncate text-sm text-muted-foreground">
+                                {thread.description}
+                              </p>
+                              <div className="ml-2 flex-shrink-0">
+                                <div
+                                  className={cn(
+                                    "h-2 w-2 rounded-full",
+                                    getThreadColor(thread.status)
+                                  )}
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="删除会话"
+                          title="删除会话"
+                          disabled={deletingId === thread.id}
+                          onClick={(e) => handleDelete(thread.id, e)}
+                          className={cn(
+                            "absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5",
+                            "text-muted-foreground opacity-0 transition-opacity",
+                            "hover:bg-destructive/10 hover:text-destructive",
+                            "group-hover:opacity-100 focus:opacity-100",
+                            deletingId === thread.id && "opacity-100"
+                          )}
+                        >
+                          {deletingId === thread.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>

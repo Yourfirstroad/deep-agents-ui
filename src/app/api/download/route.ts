@@ -12,10 +12,11 @@ const OUTPUTS_DIR = path.resolve(
 );
 
 // 只允许下载这几类交付物,防止把接口当成任意文件读取器
-const ALLOWED_EXTENSIONS = new Set([".md", ".xlsx", ".xmind", ".html"]);
+const ALLOWED_EXTENSIONS = new Set([".md", ".xlsx", ".xmind", ".html", ".json"]);
 
 const MIME_TYPES: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
   ".xlsx":
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".xmind": "application/octet-stream",

@@ -51,6 +51,34 @@ export interface Thread {
   updatedAt: Date;
 }
 
+// 文档解析 + 降噪结果(/api/parse-document SSE 的 done 事件载荷)
+export interface DenoiseRemoval {
+  rule_id: string;
+  rule_name: string;
+  text: string;
+  line_no: number | null;
+  page_no: number | null;
+}
+
+export interface DenoiseReport {
+  stats: Record<string, number>;
+  removals: DenoiseRemoval[];
+  aborted: boolean;
+}
+
+export interface ParseReport {
+  path: string; // /uploads/<doc>.md
+  fileName: string;
+  markdown: string; // 清洗后
+  rawMarkdown: string; // 原始(降噪前)
+  denoise: DenoiseReport | null; // null = 降噪未启用或失败
+  denoiseError?: string;
+  auditMarkdown?: string | null; // 人读降噪报告(可注入文件面板/下载)
+  artifacts?: Record<string, string>; // 落盘文件名: raw_md/audit_json/report_md
+}
+
+export type ParsePhase = "parsing" | "denoising";
+
 export interface InterruptData {
   value: any;
   ns?: string[];
